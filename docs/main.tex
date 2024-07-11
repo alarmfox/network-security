@@ -222,7 +222,7 @@ allo spazio kernel semplicemente utilizzando indirizzi fisici e modificando il c
 Ad esempio, è possibile \textit{patchare} diverse systemcall come di seguito:
 
 
-\begin{lstlisting}[language=C,style=CStyle,caption="Privilege escalatation con system call modificate dall'attacco"]
+\begin{lstlisting}[language=C,style=CStyle,caption="Privilege escalation con system call modificate dall'attacco"]
 if (setresuid(0, 0, 0) < 0) {
     perror("setresuid");
 } else {
@@ -239,9 +239,89 @@ if (setresuid(0, 0, 0) < 0) {
 sfrutta una vulnerabilità presente nel sistema \textbf{\textit{io\_uring}} di Linux. 
 In particolare, il sistema mantiene una coda delle richieste (\textbf{\textit{defer\_list}}) 
 che viene acceduta in maniera concorrente. Esiste un caso in cui l'accesso non viene protetto 
-da uno \textbf{\textit{spinlock}}
+da uno \textbf{\textit{spinlock}}. In sostanza, la funzione \textbf{\textit{io\_cancel\_defer\_files}} 
+mostrata di seguito, può essere fatta eseguire due volte da due CPU diverse:
+\begin{itemize}
+  \item \textbf{do\_exit()};
+  \item \textbf{execve()};
+\end{itemize}
 
-\paragraph{Utilizzo della tecnica per l'attacco in esame}
+\begin{lstlisting}[language=C,style=CStyle,caption="Funzione vittima: accede alla defer\_list senza utilizzare uno spinlock"]
+static void io_cancel_defer_files(struct io_ring_ctx *ctx,
+                  struct task_struct *task,
+                  struct files_struct *files)
+{
+    struct io_defer_entry *de = NULL;
+    LIST_HEAD(list);
+    spin_lock_irq(&ctx->completion_lock);
+    list_for_each_entry_reverse(de, &ctx->defer_list, list) {
+        if (io_match_task(de->req, task, files)) {
+            list_cut_position(&list, &ctx->defer_list, &de->list);
+            break;
+        }
+    }
+    spin_unlock_irq(&ctx->completion_lock);
+    while (!list_empty(&list)) {
+        de = list_first_entry(&list, struct io_defer_entry, list);
+        list_del_init(&de->list);
+        req_set_fail_links(de->req);
+        io_put_req(de->req);
+        io_req_complete(de->req, -ECANCELED);
+        kfree(de);
+    }
+}
+\end{lstlisting}
+
+La \cref{fig:dirty-rc} mostra come si può creare la race condition. 
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.7\textwidth]{figures/ch1/dirtypt_1-df.png}
+  \end{center}
+  \caption{Dimostrazione dell'esistenza della race-condition}\label{fig:dirty-rc}
+\end{figure}
+
+
+In realtà, non è un problema poichè la funzione in esame cancella la lista solo per il task 
+corrente e quindi non interferisce con \textbf{\textit{iopoll}} sulla CPU A, ma utilizzando 
+il flag \textbf{IOSQE\_IO\_DRAIN} in \textit{iopoll} è possibile far accedere la lista 
+anche al task sulla CPU B. Ottenendo lo schema in \cref{fig:dirty-df}
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.85\textwidth]{figures/ch1/dirtypt_2-df.png}
+  \end{center}
+  \caption{Creazione del double-free con il flag IOSQE\_IO\_DRAIN}\label{fig:dirty-df}
+\end{figure}
+
+\paragraph{Utilizzo della tecnica per l'attacco in esame} Trovata una vulnerabilità di tipo 
+double-free come illustrato in \cref{s:nf_tables-df},  
+l'exploit alloca una pagina in PUD (Page Upper Directory) e una in PMD (Page Middle Directory) 
+che puntanno allo stesso indirizzo del kernel. La \cref{fig:dirtypt-nftables}, 
+mostra come 
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.6\textwidth]{figures/ch1/dirtypt_current.png}
+  \end{center}
+  \caption{Scrittura e lettura degli indirizzi del kernel dallo spazio utente}\label{fig:dirtypt-nftables}
+\end{figure}
+
+La tecnica può essere utilizzata per fare mirroring dello spazio kernel sfruttando 
+diverse combinazioni della page table innestata. Ad esempio, questo attacco utilizza PMD+PTE 
+ma funzionanto tutte allo stesso modo. 
+
+\paragraph{Esempio\cite{NetfilterTablesVulnerability}}
+Si supponga di voler arrivare all'indirizzo fisico $0xCAFE1460$. 
+Con la Dirtypage directory, si allocano due PUD e una PMD page con mmap con i rispettivi 
+indirizzi virtuali da $0x8000000000$ a $0x10000000000$ ($mm\to pgd[1]$) e da $0x40000000$ a
+$0x80000000$ per PMD $(mm\to pgd[0][1])$. Essendo stati allocati insieme, 
+gli indirizzi fisici puntati dal PUD e PMD corrispondono ($mm \to pgd[1] == mm \to pgd[0][1]$). 
+Formalmente, $mm\to pgd[0][1][x][y]$ è una pagina utente, mentre $mm\to pgd[1][x][y]$ è una 
+PTE. Quindi, utilizzando la prima pagina utente $mm\to pgd[0][1][0][0]+0x0$ si può 
+scrivere il valore dell'indirizzo desiderato ($0x80000000CAFE1867$). Valendo l'uguaglianza di 
+prima, la scrittura in nella pagina utente corrisponde a quella nella PTE 
+$mm\to pgd[1][0][0]$ che può essere deferenziata e usata come indirizzo nello spazio kernel.
 
 \subsubsection{Superare KASLR}
 Per utilizzare la tecnica di privilege escalation presentata in \cref{s:pe-linux}, 
@@ -277,7 +357,6 @@ static int is_kernel_base(unsigned char *addr)
 			memcmp(addr + 0x71, "\x48\xc7\xc0\x80\x00\x00", 6) == 0 &&
 			memcmp(addr + 0x78, "\xff\xe0", 2) == 0)
 		return 1;
-
 
 	return 0;
 }
@@ -463,7 +542,8 @@ in \cref{fig:nf_flow}.
   \caption{Flusso di un pacchetto all'interno di netfilter}\label{fig:nf_flow}
 \end{figure}
 
-\subsubsection{Vulnerabilità double free} Essendo molto versatile, \textbf{\textit{nf\_tables}} 
+\subsubsection{Vulnerabilità double free}\label{s:nf_tables-df}
+Essendo molto versatile, \textbf{\textit{nf\_tables}} 
 contiene molte vulnerabilità. In questo attacco la vulnerabilità trovata è un double free 
 ottenuto forzando netfilter a ri-accettare un pacchetto che era stato marcato come da scartare. 
 Ciò avviene a causa del modo con il quale netfilter decide se un pacchetto deve essere scartato o 
@@ -573,7 +653,13 @@ Un PoC che sfrutta la vulnerabilità è presente in \cite{ExploitPoC}.
 
 \clearpage
 
-\section{Mitigazione della vulnerabilità}
+\section{Mitigazione delle vulnerabilità}
+L'attacco presentato sfrutta la tecnica dirty pagetables per attaccare nf\_tables, ma 
+può sfruttare altri bug del kernel di Linux che consentono di allocare PUD e PMD vicini. Le 
+mitigazioni possono essere relative alla vulnerabilità di nftables, ma bisogna principalmente
+relativa alla tecnica utilizzata.
+
+\subsection{Mitigazione di nf\_tables}
 La funzione \textbf{\textit{nf\_hook\_slow()}} è stata patchata. In particolare, è stata 
 eliminata la macro \textbf{\textit{NF\_DROP\_GETERR}} poichè NF\_QUEUE non è utilizzato da 
 nftables.\cite{Patch}.
@@ -613,6 +699,22 @@ nftables.\cite{Patch}.
  	desc->len = sizeof(data->verdict);
 --  
 \end{lstlisting}
+
+\subsection{Mitigazione della vulnerabilità nella gestione della memoria}
+La paginazione gararchica è necessaria per supportare i workload moderni. I kernel possono 
+rendere più diffile utilizzare queste tecniche riducendo i poteri alle pagine utente, 
+ma impattando le performance a livello kernel. Altre tecniche che possono essere applicate sono:
+\begin{itemize}
+  \item static locking analysis: il codice del kernel deve essere verificato con strumenti 
+    automatici;
+  \item riduzione delle systemcall: quest'attacco utilizza il pinning della CPU per essere 
+    sicuro di accedere alla stessa free-list. Impedire agli utenti di usare 
+    \textbf{\textit{sched\_affinity}} potrebbe mitigare le minacce;
+  \item rendere le pagine degli utenti read-only;
+  \item aggiungere supporto hardware: con i meccanismi di trustzone è possibile separare 
+    completamente zone critiche del kernel impedendone l'accesso a livello fisico tenendo una 
+    parte del codice cifrata;
+\end{itemize}
 \clearpage
 
 \nocite{*}
