@@ -1,9 +1,17 @@
 \documentclass{article}
 
-\usepackage{tikz, hyperref, cleveref, graphicx, caption, subcaption, listings}
+\usepackage{tikz, hyperref, cleveref, graphicx, caption, subcaption, listings, cite}
+% \usepackage[style=numeric, sorting=ynt] {biblatex}
+
+\usepackage{natbib} %Bibliography.
+\setcitestyle{numbers} %Cite as numbers or author-year.
+\bibliographystyle{vancouver} %Reference style. 
+
 \usepackage[inkscapeformat=png]{svg}
 \crefname{lstlisting}{listato}{listings}
 \Crefname{lstlisting}{Listato}{Listings}
+
+% \addbibresource{refs.bib}
 
 \crefformat{section}{\S#2#1#3}
 \crefformat{subsection}{\S#2#1#3}
@@ -488,6 +496,9 @@ nftables.
 --  
 \end{verbatim}
 \clearpage
-\bibliography{refs}
 
+\nocite{*}
+
+% \bibliographystyle{IEEEtran}
+\bibliography{refs.bib}
 \end{document}
