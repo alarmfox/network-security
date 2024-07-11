@@ -1,0 +1,20 @@
+\contentsline {section}{\numberline {1}Concetti utilizzati}{4}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Gestione delle memoria in Linux}{4}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Allocazione delle pagine}{4}{subsection.1.2}%
+\contentsline {paragraph}{Anomalie nella gestione delle pagine}{4}{section*.7}%
+\contentsline {subsubsection}{\numberline {1.2.1}Tecnica \textit {Dirty Pagetable}}{6}{subsubsection.1.2.1}%
+\contentsline {subsubsection}{\numberline {1.2.2}Superare KASLR}{6}{subsubsection.1.2.2}%
+\contentsline {subsection}{\numberline {1.3}Privilege escalation in Linux}{6}{subsection.1.3}%
+\contentsline {subsubsection}{\numberline {1.3.1}Sovrascrittura della variabile \textit {modprobe\_path}}{6}{subsubsection.1.3.1}%
+\contentsline {subsubsection}{\numberline {1.3.2}Superare CONFIG\_STATIC\_USERMODEHELPER}{7}{subsubsection.1.3.2}%
+\contentsline {subsection}{\numberline {1.4}Frammentazione dei pacchetti IP}{7}{subsection.1.4}%
+\contentsline {subsubsection}{\numberline {1.4.1}Gestione dei pacchetti frammentati in Linux}{7}{subsubsection.1.4.1}%
+\contentsline {subsubsection}{\numberline {1.4.2}Superare CONFIG\_FREELIST\_HARDENED}{8}{subsubsection.1.4.2}%
+\contentsline {subsection}{\numberline {1.5}Firewall: netfilter API}{9}{subsection.1.5}%
+\contentsline {subsubsection}{\numberline {1.5.1}Vulnerabilità double free}{9}{subsubsection.1.5.1}%
+\contentsline {subsection}{\numberline {1.6}Linux user namespaces}{10}{subsection.1.6}%
+\contentsline {section}{\numberline {2}Attacco}{12}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Preparazione del kernel}{12}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Configurazione kernel: socket Netlink}{12}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Exploit della vulnerabilità}{12}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Mitigazione della vulnerabilità}{13}{section.3}%
