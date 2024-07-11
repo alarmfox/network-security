@@ -1,9 +1,8 @@
 \documentclass{article}
 
-\usepackage{tikz, hyperref, cleveref, graphicx, caption, subcaption, listings, cite}
-% \usepackage[style=numeric, sorting=ynt] {biblatex}
+\usepackage{tikz, hyperref, cleveref, graphicx, caption, subcaption, listings, cite, natbib}
+\usepackage{xcolor}
 
-\usepackage{natbib} %Bibliography.
 \setcitestyle{numbers} %Cite as numbers or author-year.
 \bibliographystyle{vancouver} %Reference style. 
 
@@ -25,21 +24,46 @@
 \renewcommand{\contentsname}{Indice}
 \renewcommand{\refname}{Riferimenti}
 
-\lstset{
-  language=C,                     % choose the language of the code
-  numbers=left,                   % where to put the line-numbers
-  stepnumber=1,                   % the step between two line-numbers.        
-  numbersep=5pt,                  % how far the line-numbers are from the code
-  backgroundcolor=\color{white},  % choose the background color. You must add \usepackage{color}
-  showspaces=false,               % show spaces adding particular underscores
-  showstringspaces=false,         % underline spaces within strings
-  showtabs=false,                 % show tabs within strings adding particular underscores
-  tabsize=2,                      % sets default tabsize to 2 spaces
-  captionpos=b,                   % sets the caption-position to bottom
-  breaklines=true,                % sets automatic line breaking
-  breakatwhitespace=true,         % sets if automatic breaks should only happen at whitespace
-  title=\lstname,                 % show the filename of files included with \lstinputlisting;
+\definecolor{keywordcolor}{rgb}{0.5,0,0.5}
+\definecolor{commentcolor}{rgb}{0.25,0.5,0.35}
+\definecolor{stringcolor}{rgb}{0.6,0.1,0.1}
+\definecolor{backgroundcolor}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{CStyle}{
+    backgroundcolor=\color{backgroundcolor},
+    commentstyle=\color{commentcolor}\textit,
+    keywordstyle=\color{keywordcolor}\bfseries,
+    numberstyle=\tiny\color{gray},
+    stringstyle=\color{stringcolor},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=C
 }
+
+% \lstset{
+%   language=C,                     % choose the language of the code
+%   numbers=left,                   % where to put the line-numbers
+%   stepnumber=1,                   % the step between two line-numbers.        
+%   numbersep=5pt,                  % how far the line-numbers are from the code
+%   backgroundcolor=\color{white},  % choose the background color. You must add \usepackage{color}
+%   showspaces=false,               % show spaces adding particular underscores
+%   showstringspaces=false,         % underline spaces within strings
+%   showtabs=false,                 % show tabs within strings adding particular underscores
+%   tabsize=2,                      % sets default tabsize to 2 spaces
+%   captionpos=b,                   % sets the caption-position to bottom
+%   breaklines=true,                % sets automatic line breaking
+%   breakatwhitespace=true,         % sets if automatic breaks should only happen at whitespace
+%   title=\lstname,                 % show the filename of files included with \lstinputlisting;
+% }
 
 \author{Giuseppe Capasso}
 
@@ -115,7 +139,7 @@ moderni kernel Linux come KASLR (kernel address space layout randomization) e le
 controllare la validità delle free list nel PCP.
 
 \clearpage
-\section{Concetti utilizzati}
+\section{Concetti utilizzati}\label{s:basics}
 \subsection{Gestione delle memoria in Linux}
 I moderni sistemi operativi utilizzano la memoria virtuale per garantire ad ogni processo 
 uno spazio di indirizzamento che non dipende dagli altri processi attualmente in esecuzione. 
@@ -149,6 +173,18 @@ pagine cresce all'aumentare dell'ordine.
   \end{center}
   \caption{Allocazione delle pagine Linux}\label{fig:order}
 \end{figure}
+
+Un diagramma di flusso che mostra come vengono gestite le pagine in Linux è mostrato 
+in \cref{fig:flowchart-page-allocator} 
+(diagramma tratto da \cite{NetfilterTablesVulnerability}).
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=0.7\textwidth]{figures/ch1/activity-diagram-allocator.png}
+  \end{center}
+  \caption{Diagramma di flusso di come vengono allocate le pagine}\label{fig:flowchart-page-allocator}
+\end{figure}
+
 
 Infatti, la \cref{fig:allocator-per-order}\cite{NetfilterTablesVulnerability}
 mostra come il buddy allocator può essere sempre utilizzato, ma utilizza pagine da un pool globale 
@@ -184,17 +220,60 @@ buddy allocator forzando un'operazione di drain seguita da una di refill.
 \subsubsection{Tecnica \textit{Dirty Pagetable}}
 
 \subsubsection{Superare KASLR}
+Per utilizzare la tecnica di privilege escalation presentata in \cref{s:pe-linux}, 
+bisogna conoscere l'indirizzo fisico in cui si trova il kernel. Grazie agli script in 
+\cite{KernelSig}, è possibile ricavare una signature del kernel con la quale ispezionare 
+la memoria. In generale, si tratta di una operazione veloce in quanto il kernel si trova 
+allineato ad indirizzi multipli di di $2MiB$ (con la variabile \textbf{\textit{CONFIG\_PHYSICAL\_ALIGN}}). 
+
+Lo script consente di effettuare un attacco bruteforce per individuare l'indirizzo base del 
+kernel. In particolare, genera uno snippet di codice $C$ (mostrato di seguito e che può
+essere facilmente esteso per supportare diversi kernel). 
+
+\begin{lstlisting}[language=C,style=CStyle,caption="Signature calcolate con lo script fornito dall'autore dell'exploit"]
+static int is_kernel_base(unsigned char *addr)
+{
+	// thanks python
+	
+	// get-sig kernel_runtime_1
+	if (memcmp(addr + 0x0, "\x48\x8d\x25\x51\x3f", 5) == 0 &&
+			memcmp(addr + 0x7, "\x48\x8d\x3d\xf2\xff\xff\xff", 7) == 0)
+		return 1;
+
+	// get-sig kernel_runtime_2
+	if (memcmp(addr + 0x0, "\xfc\x0f\x01\x15", 4) == 0 &&
+			memcmp(addr + 0x8, "\xb8\x10\x00\x00\x00\x8e\xd8\x8e\xc0\x8e\xd0\xbf", 12) == 0 &&
+			memcmp(addr + 0x18, "\x89\xde\x8b\x0d", 4) == 0 &&
+			memcmp(addr + 0x20, "\xc1\xe9\x02\xf3\xa5\xbc", 6) == 0 &&
+			memcmp(addr + 0x2a, "\x0f\x20\xe0\x83\xc8\x20\x0f\x22\xe0\xb9\x80\x00\x00\xc0\x0f\x32\x0f\xba\xe8\x08\x0f\x30\xb8\x00", 24) == 0 &&
+			memcmp(addr + 0x45, "\x0f\x22\xd8\xb8\x01\x00\x00\x80\x0f\x22\xc0\xea\x57\x00\x00", 15) == 0 &&
+			memcmp(addr + 0x55, "\x08\x00\xb9\x01\x01\x00\xc0\xb8", 8) == 0 &&
+			memcmp(addr + 0x61, "\x31\xd2\x0f\x30\xe8", 5) == 0 &&
+			memcmp(addr + 0x6a, "\x48\xc7\xc6", 3) == 0 &&
+			memcmp(addr + 0x71, "\x48\xc7\xc0\x80\x00\x00", 6) == 0 &&
+			memcmp(addr + 0x78, "\xff\xe0", 2) == 0)
+		return 1;
 
 
-\subsection{Privilege escalation in Linux}
+	return 0;
+}
+
+\end{lstlisting}
+
+Una volta trovato l'indirizzo base del kernel, si può aggiungere un offset per trovare 
+la variable \textbf{\textit{modprobe\_path}} per effettuare privilege escalation come mostrato 
+in \cref{s:pe-linux}.
+
+\subsection{Privilege escalation in Linux}\label{s:pe-linux}
 \subsubsection{Sovrascrittura della variabile \textit{modprobe\_path}}
 Una tecnica per effettuare privilege escalation in Linux prevede l'utilizzo del programma 
 modprobe. Quando viene eseguito un programma in Linux, sostanzialmente viene invocata 
 la system-call \textbf{\textit{execve}} a cui sono passati gli argomenti del programma 
 e il nome del file stesso. Se il file non è del formato ELF (header non corrisponde a $0x7FELF$) 
-invoca modprobe che cercherà di eseguire il programma come modulo (\textbf{\textit{call\_modprobe()}}). 
+invoca modprobe che cercherà di eseguire il programma come modulo. La funzione di seguito 
+mostra il codice della funzione \textbf{\textit{call\_modprobe()}} (tratto da \cite{LinuxDocs})
 
-\begin{lstlisting}[language=C,caption="Invocazione del programma modprobe per la gestione dei programmi dal formato sconosciuto"]
+\begin{lstlisting}[language=C,style=CStyle,caption="Invocazione del programma modprobe per la gestione dei programmi dal formato sconosciuto"]
 static int call_modprobe(char *module_name, int wait)
 {
 	struct subprocess_info *info;
@@ -277,12 +356,12 @@ ricostruito sulla CPU sulla quale è stato processato l'ultimo frammento. Questo
 la migrazione di tutta la free-list con la coda associata su un nuovo processore 
 generando un \textbf{\textit{free}} della freelist. 
 
-Ad esempio (\cref{fig:skb-migr}), se si volesse spostare \textbf{\textit{skb1}} dalla \textbf{\textit{CPU0}} all 
+Ad esempio (\cref{fig:skb-migr}) presa da \cite{NetfilterTablesVulnerability}, se si volesse spostare \textbf{\textit{skb1}} dalla \textbf{\textit{CPU0}} all 
 \textbf{\textit{CPU1}}, si può allocare skb1 come frammento di un pacchetto IP e inviare 
 \textbf{\textit{skb2}} sulla \textbf{\textit{CPU1}} marcandolo come frammento finale. 
 Questo può essere fatto con lo pseudo-codice di seguito:
 
-\begin{lstlisting}[language=C,caption="Creazione di due frammenti per un pacchetto IP"]
+\begin{lstlisting}[language=C,style=CStyle,caption="Creazione di due frammenti per un pacchetto IP"]
 iph1->len = sizeof(struct ip_header)*2 + 64;
 iph1->offset = ntohs(0 | IP_MF); // set MORE FRAGMENTS flag 
 memset(iph1_body, 'A', 8); 
@@ -310,7 +389,7 @@ la \textbf{\textit{spray-free}} dei pacchetti allocati. Infine, si invia un pacc
 che andrà ad impattare le regole nf\_tables configurate all'inizio dell'exploit per attivare 
 il primo free.
 
-\begin{lstlisting}[language=C,caption="Trigger del primo free con un pacchetto frammentato (0x2000)"]
+\begin{lstlisting}[language=C,style=CStyle,caption="Trigger del primo free con un pacchetto frammentato (0x2000)"]
 static void privesc_flh_bypass_no_time(int shell_stdin_fd, int shell_stdout_fd)
 {
     // ... (skb spray)
@@ -333,7 +412,7 @@ e obbligare il kernel a scartare tutta la \textit{IP frag queue}.
 Il modulo \textbf{\textit{nf\_tables}} è il backend utilizzato in tutte le distribuzioni 
 Linux per \textbf{\textit{iptables}}. Per capire se inoltrare un pacchetto o meno,
 netfilter utilizza un algoritmo basato su una macchina a stati configurata con le regole 
-degli utenti. Nftables è organizzato in:
+degli utenti. Come mostrato in \cref{fig:nf-tables-entity} (tratta da \cite{NetfilterTablesVulnerability}), nftables è organizzato in:
 \begin{itemize}
   \item Tables: protocollo da ispezionare
   \item Chains: una catena racchiude un insieme di regole da applicare ad uno specifico insieme di 
@@ -341,6 +420,14 @@ degli utenti. Nftables è organizzato in:
   \item Rules: regole da applicare ai pacchetti in ingresso alla catena;
   \item Expressions: istruzioni da applicare alla macchina a stati.
 \end{itemize}
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.65\textwidth]{figures/ch1/nf_tables-4.png}
+  \end{center}
+  \caption{Entità principali di NfTables}\label{fig:nf-tables-entity}
+\end{figure}
+
 
 Un diagramma dinamico del trattamento che può ricevere un pacchetto in netfilter è mostrato 
 in \cref{fig:nf_flow}.
@@ -366,7 +453,7 @@ si effettua il primo \textbf{\textit{free}} del double free; mentre ritornando \
 ci si predispone per la seconda deallocazione che sarà effettuata quando il pacchetto non 
 sarà più utile.
 
-\begin{lstlisting}[language=C,caption="Funzione nf_hook_slow che genera la vulnerabilit"]
+\begin{lstlisting}[language=C,style=CStyle,caption="Funzione nf_hook_slow che genera la vulnerabilit"]
 // looping over existing rules when skb triggers chain
 int nf_hook_slow(struct sk_buff *skb, struct nf_hook_state *state,
          const struct nf_hook_entries *e, unsigned int s)
@@ -409,7 +496,7 @@ int nf_hook_slow(struct sk_buff *skb, struct nf_hook_state *state,
 Ciò è possibile a causa del modo con il quale viene generato il verdetto. Infatti, i 16 bit 
 più significativi dovrebbero essere negativi, ma la funzione non verifica questa condizione 
 e quindi rende possibile ritornare un valore positivo che viene tradotto in 
-\textbf{\textit{NF\_ACCEPT}}.
+\textbf{\textit{NF\_ACCEPT}}\cite{Patch}.
 
 \subsection{Linux user namespaces} 
 L'attacco utilizza l'isolamento a livello di processo offerto da Linux. In particolare, 
@@ -419,7 +506,7 @@ e ha bisogno della variabile \textbf{\textit{sysctl kernel.unprivileged\_userns\
 kernel.unprivileged\_userns\_clone = 1}} (disponibile default in tutte le maggiori 
 distribuzioni Linux). 
 
-\begin{lstlisting}[language=C,captio="Setup network namespace come utente non privilegiato"]
+\begin{lstlisting}[language=C,style=CStyle,caption="Setup network namespace come utente non privilegiato"]
 static void do_unshare()
 {
     int retv;
@@ -446,7 +533,14 @@ static void do_unshare()
 
 \clearpage
 \section{Attacco}
-
+Come illustrato in \cref{s:basics}, l'attacco prevede tre 
+passi fondamentali:
+\begin{itemize}
+  \item setup del namespace e delle tabelle netfilter;
+  \item trigger del double free con pacchetti IP frammentati;
+  \item sovrascrittura delle pagine;
+\end{itemize}
+Un PoC che sfrutta la vulnerabilità è presente in \cite{ExploitPoC}.
 \subsection{Preparazione del kernel}
 
 \subsection{Configurazione kernel: socket Netlink}
@@ -458,9 +552,9 @@ static void do_unshare()
 \section{Mitigazione della vulnerabilità}
 La funzione \textbf{\textit{nf\_hook\_slow()}} è stata patchata. In particolare, è stata 
 eliminata la macro \textbf{\textit{NF\_DROP\_GETERR}} poichè NF\_QUEUE non è utilizzato da 
-nftables. 
+nftables.\cite{Patch}.
 
-\begin{verbatim}
+\begin{lstlisting}[language=C,style=CStyle,caption="Commit applicato per mitigare la vulnerabilità"]
 --- a/net/netfilter/nf_tables_api.c
 +++ b/net/netfilter/nf_tables_api.c
 @@ -10988,16 +10988,10 @@ static int nft_verdict_init(const struct nft_ctx *ctx, struct nft_data *data,
@@ -494,11 +588,10 @@ nftables.
  
  	desc->len = sizeof(data->verdict);
 --  
-\end{verbatim}
+\end{lstlisting}
 \clearpage
 
 \nocite{*}
 
-% \bibliographystyle{IEEEtran}
 \bibliography{refs.bib}
 \end{document}
