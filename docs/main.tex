@@ -10,8 +10,6 @@
 \crefname{lstlisting}{listato}{listings}
 \Crefname{lstlisting}{Listato}{Listings}
 
-% \addbibresource{refs.bib}
-
 \crefformat{section}{\S#2#1#3}
 \crefformat{subsection}{\S#2#1#3}
 \crefformat{subsubsection}{\S#2#1#3}
@@ -49,22 +47,6 @@
     language=C
 }
 
-% \lstset{
-%   language=C,                     % choose the language of the code
-%   numbers=left,                   % where to put the line-numbers
-%   stepnumber=1,                   % the step between two line-numbers.        
-%   numbersep=5pt,                  % how far the line-numbers are from the code
-%   backgroundcolor=\color{white},  % choose the background color. You must add \usepackage{color}
-%   showspaces=false,               % show spaces adding particular underscores
-%   showstringspaces=false,         % underline spaces within strings
-%   showtabs=false,                 % show tabs within strings adding particular underscores
-%   tabsize=2,                      % sets default tabsize to 2 spaces
-%   captionpos=b,                   % sets the caption-position to bottom
-%   breaklines=true,                % sets automatic line breaking
-%   breakatwhitespace=true,         % sets if automatic breaks should only happen at whitespace
-%   title=\lstname,                 % show the filename of files included with \lstinputlisting;
-% }
-
 \author{Giuseppe Capasso}
 
 \begin{document}
@@ -82,7 +64,7 @@
 
   \vfill
 
-  {\textbf{\textit{\LARGE Exploiting Linux kernel using dirty pagetables}}}
+  {\textbf{\textit{\LARGE Analysis of a Linux KSMA using Dirty Pagetables}}}
   \\[2cm]
 
   {\textbf{\textit{\Large Progetto di Network Security}}}
@@ -169,7 +151,7 @@ pagine cresce all'aumentare dell'ordine.
 
 \begin{figure}[h]
   \begin{center}
-    \includegraphics[width=0.95\textwidth]{figures/ch1/Memory-management-in-Linux-via-the-buddy-allocator-algorithm-Memory-spaces-are-divided.png}
+    \includegraphics[width=.75\textwidth]{figures/ch1/Memory-management-in-Linux-via-the-buddy-allocator-algorithm-Memory-spaces-are-divided.png}
   \end{center}
   \caption{Allocazione delle pagine Linux}\label{fig:order}
 \end{figure}
@@ -198,7 +180,7 @@ gestire piccole allocazioni nella singola CPU, ma viene invocato dalla funzione
 
 \begin{figure}[h]
   \begin{center}
-    \includegraphics[width=0.95\textwidth]{figures/ch1/allocator-per-order.png}
+    \includegraphics[width=.75\textwidth]{figures/ch1/allocator-per-order.png}
   \end{center}
   \caption{Allocatore utilizzato in base all'ordine delle pagine}\label{fig:allocator-per-order}
 \end{figure}
@@ -216,8 +198,50 @@ buddy allocator forzando un'operazione di drain seguita da una di refill.
 
 \clearpage
 
+\subsubsection{Tecnica \textit{Dirty Pagetable}} 
+La tecnica viene utilizzata per innescare vulnerabilità nell'heap come UAF e DF. Questa 
+tecnica innovativa è stata sviluppata per eseguire privilege escalation su Google Pixel 7 
+generando una vulnerabilità $0-day$ a cui fu assegnato il \textbf{\textit{CVE-2023-21400}}
+con un CVSS pari a $6.7$ nella versione base\cite{DirtyPageTable}. 
 
-\subsubsection{Tecnica \textit{Dirty Pagetable}}
+\paragraph{Panoramica} Nella sua versione più semplice, la tecnica può essere utilizzata per 
+innescare un use-after-free. Gli oggetti "vittima" sono allocati nell'heap e vengono gestiti 
+dallo slab allocator. Rilasciando tutti gli oggetti nello "slab vittima", si ottiene che le 
+pagine vengono richieste dal \textbf{\textit{page allocator}}. Questo processo, 
+detto "reclaim" delle pagine, consente di scrivere PTE (Page Table Entry) dallo spazio 
+utente a quello kernel, come mostrato in \cref{fig:occupy-dpt}.
+
+\begin{figure}[h]
+  \begin{center}
+    \includegraphics[width=.5\textwidth]{figures/ch1/pic1_occupy_with_pagetable.png}
+  \end{center}
+  \caption{Scrittura dello "slab vittima" con pagine dello spazio utente}\label{fig:occupy-dpt}
+\end{figure}
+Con l'assunto di avere una funzione che riesce a manipolare le PTE, si può accedere 
+allo spazio kernel semplicemente utilizzando indirizzi fisici e modificando il codice del kernel. 
+Ad esempio, è possibile \textit{patchare} diverse systemcall come di seguito:
+
+
+\begin{lstlisting}[language=C,style=CStyle,caption="Privilege escalatation con system call modificate dall'attacco"]
+if (setresuid(0, 0, 0) < 0) {
+    perror("setresuid");
+} else {
+    if (setresgid(0, 0, 0) < 0) {
+        perror("setresgid");
+    } else {
+        printf("[+] Spawn a root shell\n");
+        system("/system/bin/sh");
+    }
+}
+\end{lstlisting}
+
+\paragraph{Exploit di double-free per manipolare PTE} L'exploit originale in \cite{DirtyPageTable}
+sfrutta una vulnerabilità presente nel sistema \textbf{\textit{io\_uring}} di Linux. 
+In particolare, il sistema mantiene una coda delle richieste (\textbf{\textit{defer\_list}}) 
+che viene acceduta in maniera concorrente. Esiste un caso in cui l'accesso non viene protetto 
+da uno \textbf{\textit{spinlock}}
+
+\paragraph{Utilizzo della tecnica per l'attacco in esame}
 
 \subsubsection{Superare KASLR}
 Per utilizzare la tecnica di privilege escalation presentata in \cref{s:pe-linux}, 
@@ -343,7 +367,7 @@ I campi rilevanti sono:
 
 \begin{figure}[h]
   \begin{center}
-    \includegraphics[width=0.95\textwidth]{figures/ch1/IPv4-Headers-Standard-Fragmentation-Highlighted-1024x431.png}
+    \includegraphics[width=.75\textwidth]{figures/ch1/IPv4-Headers-Standard-Fragmentation-Highlighted-1024x431.png}
   \end{center}
   \caption{Header di un pacchetto IPv4}\label{fig:ipv4-header}
 \end{figure}
@@ -376,7 +400,7 @@ transmit(iph2, iph2_body, 56);
 
 \begin{figure}[h]
   \begin{center}
-    \includegraphics[width=0.95\textwidth]{figures/ch1/switching_skb_cpu-1.png}
+    \includegraphics[width=.75\textwidth]{figures/ch1/switching_skb_cpu-1.png}
   \end{center}
   \caption{Utilizzo della frammentazione IP per spostare un skb da una CPU ad un'altra}\label{fig:skb-migr}
 \end{figure}
@@ -434,7 +458,7 @@ in \cref{fig:nf_flow}.
 
 \begin{figure}[h]
   \begin{center}
-    \includegraphics[width=0.95\textwidth]{figures/ch1/Diagrama_linux_netfilter_iptables.png}
+    \includegraphics[width=.8\textwidth]{figures/ch1/Diagrama_linux_netfilter_iptables.png}
   \end{center}
   \caption{Flusso di un pacchetto all'interno di netfilter}\label{fig:nf_flow}
 \end{figure}
@@ -594,4 +618,5 @@ nftables.\cite{Patch}.
 \nocite{*}
 
 \bibliography{refs.bib}
+\settocbibname{References}
 \end{document}
