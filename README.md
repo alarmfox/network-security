@@ -10,3 +10,9 @@ The project analyzes the dirty pagetable tecnique used to exploit the Linux Kern
 Based on [this blogpost](https://pwning.tech/nftables/) and related sources
 I analyzed a nf_tables double free vulnerability that can be exploited using the dirty 
 pagetables tecnique and modprobe_path overwriting to get root access from a machine.
+
+## Execution
+I compiled the kernel **6.4.16** with **CONFIG_ALLOC_INIT_ON=n** and **CONFIG_NF_TABLES=y**. 
+I created a debian image and compiled the exploit using musl-gcc. 
+
+![Success](./docs/figures/exploit-success.png "Success")
