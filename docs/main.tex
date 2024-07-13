@@ -304,7 +304,7 @@ La tecnica può essere utilizzata per fare mirroring dello spazio kernel sfrutta
 diverse combinazioni della page table innestata. Ad esempio, questo attacco utilizza PMD+PTE 
 ma funzionanto tutte allo stesso modo. 
 
-\paragraph{Esempio\cite{NetfilterTablesVulnerability}}
+\paragraph{Esempio}
 Si supponga di voler arrivare all'indirizzo fisico $0xCAFE1460$. 
 Con la Dirtypage directory, si allocano due PUD e una PMD page con mmap con i rispettivi 
 indirizzi virtuali da $0x8000000000$ a $0x10000000000$ ($mm\to pgd[1]$) e da $0x40000000$ a
@@ -684,13 +684,11 @@ CONFIG_NF_TABLES=y
 Per creare un ambiente realistico è stata creata una distribuzione debian attraverso 
 il comando \textbf{\textit{debootstrap}} utilizzato lo script di inizializzazione fornito 
 in syzkaller \cite{InitScripts}. Il kernel utilizzato per gli esperimenti è stato compilato 
-a partire dalla configurazione \textbf{\textit{kvm\_guest.config}} generato dalla seguente 
-coppia di comandi:
+a partire dalla configurazione base dalla coppia di comandi:
 
 \begin{verbatim}
 cd $KERNEL
 make defconfig
-make kvm_guest.config 
 \end{verbatim}
 
 Una volta compilato il kernel e costruita l'immagine è possibile eseguire la macchina virtuale 
