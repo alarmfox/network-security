@@ -291,7 +291,9 @@ anche al task sulla CPU B. Ottenendo lo schema in \cref{fig:dirty-df}
 double-free come illustrato in \cref{s:nf_tables-df},  
 l'exploit alloca una pagina in PUD (Page Upper Directory) e una in PMD (Page Middle Directory) 
 che puntanno allo stesso indirizzo del kernel. La \cref{fig:dirtypt-nftables}, 
-mostra come 
+mostra come la tecnica può essere utilizzata per fare mirroring dello spazio kernel sfruttando 
+diverse combinazioni della page table innestata. Ad esempio, questo attacco utilizza PMD+PTE 
+ma funzionanto tutte allo stesso modo. 
 
 \begin{figure}[h]
   \begin{center}
@@ -300,9 +302,6 @@ mostra come
   \caption{Scrittura e lettura degli indirizzi del kernel dallo spazio utente}\label{fig:dirtypt-nftables}
 \end{figure}
 
-La tecnica può essere utilizzata per fare mirroring dello spazio kernel sfruttando 
-diverse combinazioni della page table innestata. Ad esempio, questo attacco utilizza PMD+PTE 
-ma funzionanto tutte allo stesso modo. 
 
 \paragraph{Esempio}
 Si supponga di voler arrivare all'indirizzo fisico $0xCAFE1460$. 
